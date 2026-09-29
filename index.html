@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>Live Translator EN → RU</title>
+<title>Live EN → RU</title>
 
 <style>
 * {
@@ -13,28 +13,28 @@
 
 body {
   margin: 0;
-  padding: 24px;
+  padding: 30px;
   background: #080808;
-  color: white;
+  color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
 }
 
 .container {
-  max-width: 1000px;
-  margin: 0 auto;
+  max-width: 1100px;
+  margin: auto;
 }
 
 h1 {
-  margin: 10px 0 25px;
-  font-size: 32px;
+  font-size: 34px;
+  margin-bottom: 30px;
 }
 
 button {
   width: 100%;
+  padding: 22px;
+  margin-bottom: 14px;
   border: 0;
   border-radius: 16px;
-  padding: 22px;
-  margin-bottom: 12px;
   font-size: 20px;
   font-weight: 700;
   cursor: pointer;
@@ -51,36 +51,45 @@ button {
 }
 
 #clear {
-  background: #262626;
+  background: #292929;
   color: white;
 }
 
 #status {
-  margin: 25px 0;
-  font-size: 24px;
+  font-size: 25px;
   font-weight: 700;
-}
-
-.listening {
-  color: #ff4d4d;
+  margin: 30px 0;
 }
 
 .label {
-  margin-top: 30px;
-  margin-bottom: 10px;
   color: #777;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 1px;
+  margin: 28px 0 10px;
 }
 
-#liveRussian {
-  min-height: 80px;
-  padding: 20px;
-  border-radius: 16px;
+#russian {
   background: #171717;
+  border-radius: 16px;
+  padding: 24px;
+  min-height: 110px;
+
   font-size: 34px;
   line-height: 1.45;
+}
+
+#english {
+  background: #111;
+  border-radius: 16px;
+  padding: 18px;
+
+  min-height: 65px;
+
+  font-size: 20px;
+  line-height: 1.4;
+
+  color: #aaa;
 }
 
 #history {
@@ -88,46 +97,49 @@ button {
 }
 
 .phrase {
-  padding: 20px 0;
+  padding: 22px 0;
   border-bottom: 1px solid #292929;
 }
 
-.russian {
-  font-size: 30px;
+.phraseRussian {
+  font-size: 28px;
   line-height: 1.45;
 }
 
-.english {
-  margin-top: 8px;
+.phraseEnglish {
   color: #777;
+  margin-top: 8px;
   font-size: 16px;
-  line-height: 1.4;
 }
 
 #debug {
+  color: #777;
   margin-top: 30px;
-  color: #666;
-  font-size: 14px;
+  font-size: 15px;
+  white-space: pre-wrap;
 }
 
-@media (max-width: 600px) {
+.red {
+  color: #ff4d4d;
+}
+
+@media(max-width:600px) {
 
   body {
     padding: 15px;
   }
 
   h1 {
-    font-size: 25px;
-  }
-
-  #liveRussian {
-    font-size: 28px;
-  }
-
-  .russian {
     font-size: 27px;
   }
 
+  #russian {
+    font-size: 28px;
+  }
+
+  .phraseRussian {
+    font-size: 25px;
+  }
 }
 </style>
 </head>
@@ -144,9 +156,11 @@ button {
 🎙 НАЧАТЬ СЛУШАТЬ
 </button>
 
+
 <button id="stop">
 ■ ОСТАНОВИТЬ
 </button>
+
 
 <button id="clear">
 ✕ ОЧИСТИТЬ
@@ -159,22 +173,33 @@ button {
 
 
 <div class="label">
-ПЕРЕВОД СЕЙЧАС
+🇷🇺 ПЕРЕВОД
 </div>
 
-<div id="liveRussian">
+<div id="russian">
 Нажмите «Начать слушать»
 </div>
 
 
 <div class="label">
-РАЗГОВОР
+🇺🇸 ЧТО УСЛЫШАЛ
+</div>
+
+<div id="english">
+-
+</div>
+
+
+<div class="label">
+ИСТОРИЯ РАЗГОВОРА
 </div>
 
 <div id="history"></div>
 
 
-<div id="debug"></div>
+<div id="debug">
+Ожидание...
+</div>
 
 </div>
 
@@ -182,11 +207,19 @@ button {
 <script>
 
 let recognition = null;
+
 let running = false;
 
-let lastInterimText = "";
-let translationTimer = null;
-let translationRequest = 0;
+let restartTimer = null;
+
+let translateTimer = null;
+
+let lastText = "";
+
+let lastFinalText = "";
+
+let requestNumber = 0;
+
 
 const startButton =
   document.getElementById("start");
@@ -200,26 +233,32 @@ const clearButton =
 const statusBox =
   document.getElementById("status");
 
-const liveRussian =
-  document.getElementById("liveRussian");
+const russianBox =
+  document.getElementById("russian");
 
-const history =
+const englishBox =
+  document.getElementById("english");
+
+const historyBox =
   document.getElementById("history");
 
-const debug =
+const debugBox =
   document.getElementById("debug");
 
 
 
-/* =========================
-   ПЕРЕВОД
-========================= */
+/* ==========================
+   TRANSLATION
+========================== */
 
-async function translateText(text) {
+async function translate(text) {
 
-  if (!text || text.trim().length < 2) {
+  if (!text) {
     return "";
   }
+
+  const currentRequest =
+    ++requestNumber;
 
   try {
 
@@ -232,11 +271,25 @@ async function translateText(text) {
       await fetch(url);
 
     if (!response.ok) {
-      throw new Error("Translation HTTP " + response.status);
+
+      throw new Error(
+        "HTTP " + response.status
+      );
+
     }
 
     const data =
       await response.json();
+
+
+    if (
+      currentRequest !== requestNumber
+    ) {
+
+      return null;
+
+    }
+
 
     if (
       data &&
@@ -250,12 +303,17 @@ async function translateText(text) {
 
     }
 
-    return "";
 
-  } catch (error) {
+    throw new Error(
+      "Перевод не получен"
+    );
 
-    debug.innerText =
-      "Ошибка перевода: " + error.message;
+
+  } catch(error) {
+
+    debugBox.innerText =
+      "❌ Ошибка перевода: " +
+      error.message;
 
     return "";
 
@@ -265,88 +323,121 @@ async function translateText(text) {
 
 
 
-/* =========================
-   HTML ENTITIES
-========================= */
-
 function decodeHTML(text) {
 
-  const textarea =
+  const element =
     document.createElement("textarea");
 
-  textarea.innerHTML = text;
+  element.innerHTML =
+    text;
 
-  return textarea.value;
-
-}
-
-
-
-/* =========================
-   LIVE ПЕРЕВОД
-========================= */
-
-function scheduleLiveTranslation(text) {
-
-  if (!text) return;
-
-  lastInterimText = text;
-
-  clearTimeout(translationTimer);
-
-  translationTimer =
-    setTimeout(async function() {
-
-      const requestId =
-        ++translationRequest;
-
-      const sourceText =
-        lastInterimText;
-
-      const translated =
-        await translateText(sourceText);
-
-      /*
-      Не показываем старый перевод,
-      если уже пришел более новый текст.
-      */
-
-      if (
-        requestId === translationRequest &&
-        translated
-      ) {
-
-        liveRussian.innerText =
-          translated;
-
-      }
-
-    }, 350);
+  return element.value;
 
 }
 
 
 
-/* =========================
-   ДОБАВЛЕНИЕ ФИНАЛЬНОЙ ФРАЗЫ
-========================= */
+/* ==========================
+   LIVE TRANSLATION
+========================== */
 
-async function addFinalPhrase(englishText) {
+function translateLive(text) {
 
-  if (!englishText) return;
+  if (!text) {
+    return;
+  }
 
-  liveRussian.innerText =
-    "Перевожу...";
+
+  lastText =
+    text;
+
+
+  clearTimeout(
+    translateTimer
+  );
+
 
   /*
-  Отменяем отображение старого
-  промежуточного перевода.
+  Небольшая задержка нужна,
+  чтобы не отправлять API запрос
+  после каждого отдельного слова.
   */
 
-  translationRequest++;
+  translateTimer =
+    setTimeout(
+      async function() {
 
-  const russianText =
-    await translateText(englishText);
+        const textToTranslate =
+          lastText;
+
+
+        russianBox.innerText =
+          "Перевожу...";
+
+
+        const translated =
+          await translate(
+            textToTranslate
+          );
+
+
+        if (
+          translated &&
+          textToTranslate === lastText
+        ) {
+
+          russianBox.innerText =
+            translated;
+
+        }
+
+      },
+      300
+    );
+
+}
+
+
+
+/* ==========================
+   SAVE FINAL PHRASE
+========================== */
+
+async function savePhrase(
+  englishText
+) {
+
+  if (!englishText) {
+    return;
+  }
+
+
+  if (
+    englishText === lastFinalText
+  ) {
+
+    return;
+
+  }
+
+
+  lastFinalText =
+    englishText;
+
+
+  const translated =
+    await translate(
+      englishText
+    );
+
+
+  if (!translated) {
+    return;
+  }
+
+
+  russianBox.innerText =
+    translated;
 
 
   const phrase =
@@ -356,48 +447,52 @@ async function addFinalPhrase(englishText) {
     "phrase";
 
 
-  const russian =
+  const ru =
     document.createElement("div");
 
-  russian.className =
-    "russian";
+  ru.className =
+    "phraseRussian";
 
-  russian.innerText =
-    russianText || "Не удалось перевести";
+  ru.innerText =
+    translated;
 
 
-  const english =
+  const en =
     document.createElement("div");
 
-  english.className =
-    "english";
+  en.className =
+    "phraseEnglish";
 
-  english.innerText =
+  en.innerText =
     englishText;
 
 
-  phrase.appendChild(russian);
-  phrase.appendChild(english);
+  phrase.appendChild(ru);
 
-  history.appendChild(phrase);
+  phrase.appendChild(en);
 
-
-  liveRussian.innerText =
-    russianText || "";
+  historyBox.appendChild(
+    phrase
+  );
 
 
   window.scrollTo({
-    top: document.body.scrollHeight,
-    behavior: "smooth"
+
+    top:
+      document.body.scrollHeight,
+
+    behavior:
+      "smooth"
+
   });
 
 }
 
 
 
-/* =========================
-   SPEECH RECOGNITION
-========================= */
+/* ==========================
+   CREATE RECOGNITION
+========================== */
 
 function createRecognition() {
 
@@ -409,10 +504,10 @@ function createRecognition() {
   if (!SpeechRecognition) {
 
     statusBox.innerText =
-      "❌ Браузер не поддерживает распознавание речи";
+      "❌ Speech Recognition не поддерживается";
 
-    debug.innerText =
-      "Попробуйте открыть страницу в Google Chrome.";
+    russianBox.innerText =
+      "Откройте сайт в Google Chrome";
 
     return null;
 
@@ -426,78 +521,99 @@ function createRecognition() {
   rec.lang =
     "en-US";
 
+
   /*
-  false специально.
-
-  После каждой законченной части
-  мы автоматически запускаем
-  распознавание снова.
-
-  Это часто стабильнее.
+  Для живого разговора.
   */
 
   rec.continuous =
-    false;
+    true;
+
+
+  /*
+  Получаем текст еще до того,
+  как человек закончил предложение.
+  */
 
   rec.interimResults =
     true;
+
 
   rec.maxAlternatives =
     1;
 
 
 
+  /* START */
+
   rec.onstart =
     function() {
 
       statusBox.innerHTML =
-        '<span class="listening">🔴 СЛУШАЮ...</span>';
+        '<span class="red">🔴 СЛУШАЮ...</span>';
 
-      debug.innerText =
-        "Микрофон активен";
+      debugBox.innerText =
+        "🎙 Микрофон активен";
 
     };
 
 
 
+  /* AUDIO */
+
   rec.onaudiostart =
     function() {
 
-      debug.innerText =
+      debugBox.innerText =
         "🎧 Получаю звук";
 
     };
 
 
 
+  /* SOUND */
+
   rec.onsoundstart =
     function() {
 
-      debug.innerText =
+      debugBox.innerText =
         "🔊 Слышу звук";
 
     };
 
 
 
+  /* SPEECH */
+
   rec.onspeechstart =
     function() {
 
-      debug.innerText =
-        "🗣 Слышу английскую речь";
+      debugBox.innerText =
+        "🗣 Слышу речь";
 
     };
 
 
 
+  /* RESULT */
+
   rec.onresult =
     function(event) {
 
-      let interimText = "";
+      let interim =
+        "";
+
+      let finalText =
+        "";
+
 
       for (
-        let i = event.resultIndex;
-        i < event.results.length;
+        let i =
+          event.resultIndex;
+
+        i <
+          event.results.length;
+
         i++
       ) {
 
@@ -507,21 +623,23 @@ function createRecognition() {
             .trim();
 
 
-        if (!text) continue;
+        if (!text) {
+          continue;
+        }
 
 
         if (
           event.results[i].isFinal
         ) {
 
-          debug.innerText =
-            "✅ Распознано: " + text;
+          finalText +=
+            text + " ";
 
-          addFinalPhrase(text);
+        }
 
-        } else {
+        else {
 
-          interimText +=
+          interim +=
             text + " ";
 
         }
@@ -529,17 +647,56 @@ function createRecognition() {
       }
 
 
-      interimText =
-        interimText.trim();
+      interim =
+        interim.trim();
+
+      finalText =
+        finalText.trim();
 
 
-      if (interimText) {
 
-        debug.innerText =
-          "📝 " + interimText;
+      /*
+      INTERIM
+      Человек еще говорит
+      */
 
-        scheduleLiveTranslation(
-          interimText
+      if (interim) {
+
+        englishBox.innerText =
+          interim;
+
+
+        debugBox.innerText =
+          "🇺🇸 Распознаю:\n" +
+          interim;
+
+
+        translateLive(
+          interim
+        );
+
+      }
+
+
+
+      /*
+      FINAL
+      Фраза закончена
+      */
+
+      if (finalText) {
+
+        englishBox.innerText =
+          finalText;
+
+
+        debugBox.innerText =
+          "✅ Распознано:\n" +
+          finalText;
+
+
+        savePhrase(
+          finalText
         );
 
       }
@@ -547,6 +704,8 @@ function createRecognition() {
     };
 
 
+
+  /* ERROR */
 
   rec.onerror =
     function(event) {
@@ -562,26 +721,14 @@ function createRecognition() {
         "not-allowed"
       ) {
 
-        running = false;
+        running =
+          false;
 
         statusBox.innerText =
-          "❌ Разрешите доступ к микрофону";
+          "❌ Нет доступа к микрофону";
 
-        debug.innerText =
-          "Доступ к микрофону запрещен";
-
-        return;
-
-      }
-
-
-      if (
-        event.error ===
-        "no-speech"
-      ) {
-
-        debug.innerText =
-          "Жду речь...";
+        russianBox.innerText =
+          "Разрешите доступ к микрофону";
 
         return;
 
@@ -593,7 +740,8 @@ function createRecognition() {
         "audio-capture"
       ) {
 
-        running = false;
+        running =
+          false;
 
         statusBox.innerText =
           "❌ Микрофон недоступен";
@@ -603,13 +751,41 @@ function createRecognition() {
       }
 
 
-      debug.innerText =
-        "Speech error: " +
+      if (
+        event.error ===
+        "no-speech"
+      ) {
+
+        debugBox.innerText =
+          "⏳ Жду английскую речь...";
+
+        return;
+
+      }
+
+
+      if (
+        event.error ===
+        "network"
+      ) {
+
+        debugBox.innerText =
+          "❌ Ошибка Speech Recognition Network";
+
+        return;
+
+      }
+
+
+      debugBox.innerText =
+        "❌ Speech error: " +
         event.error;
 
     };
 
 
+
+  /* END */
 
   rec.onend =
     function() {
@@ -624,35 +800,45 @@ function createRecognition() {
       }
 
 
-      statusBox.innerHTML =
-        '<span class="listening">🔴 СЛУШАЮ...</span>';
-
-
       /*
-      Автоматически запускаем
-      микрофон снова.
+      Chrome иногда сам
+      завершает распознавание.
+      Запускаем его снова.
       */
 
-      setTimeout(
-        function() {
-
-          if (!running) return;
-
-          try {
-
-            rec.start();
-
-          } catch (error) {
-
-            console.log(error);
-
-          }
-
-        },
-        250
+      clearTimeout(
+        restartTimer
       );
 
-    };
+
+      restartTimer =
+        setTimeout(
+          function() {
+
+            if (!running) {
+              return;
+            }
+
+
+            try {
+
+              rec.start();
+
+            }
+
+            catch(error) {
+
+              console.log(
+                error
+              );
+
+            }
+
+          },
+          300
+        );
+
+  };
 
 
   return rec;
@@ -661,9 +847,9 @@ function createRecognition() {
 
 
 
-/* =========================
+/* ==========================
    START
-========================= */
+========================== */
 
 function startListening() {
 
@@ -685,21 +871,27 @@ function startListening() {
     true;
 
 
-  liveRussian.innerText =
+  russianBox.innerText =
     "Слушаю английскую речь...";
+
+
+  englishBox.innerText =
+    "Ожидание речи...";
 
 
   try {
 
     recognition.start();
 
-  } catch (error) {
+  }
+
+  catch(error) {
 
     running =
       false;
 
-    debug.innerText =
-      error.message;
+    debugBox.innerText =
+      "❌ " + error.message;
 
   }
 
@@ -707,17 +899,23 @@ function startListening() {
 
 
 
-/* =========================
+/* ==========================
    STOP
-========================= */
+========================== */
 
 function stopListening() {
 
   running =
     false;
 
+
   clearTimeout(
-    translationTimer
+    restartTimer
+  );
+
+
+  clearTimeout(
+    translateTimer
   );
 
 
@@ -727,7 +925,9 @@ function stopListening() {
 
       recognition.stop();
 
-    } catch (error) {}
+    }
+
+    catch(error) {}
 
   }
 
@@ -739,40 +939,58 @@ function stopListening() {
 
 
 
-/* =========================
+/* ==========================
    CLEAR
-========================= */
+========================== */
 
 function clearEverything() {
 
-  history.innerHTML =
+  historyBox.innerHTML =
     "";
 
-  liveRussian.innerText =
+
+  englishBox.innerText =
+    "-";
+
+
+  russianBox.innerText =
     running
-      ? "Слушаю..."
+      ? "Слушаю английскую речь..."
       : "Нажмите «Начать слушать»";
 
-  debug.innerText =
+
+  debugBox.innerText =
+    running
+      ? "🎙 Микрофон активен"
+      : "Ожидание...";
+
+
+  lastText =
+    "";
+
+
+  lastFinalText =
     "";
 
 }
 
 
 
-/* =========================
+/* ==========================
    BUTTONS
-========================= */
+========================== */
 
 startButton.addEventListener(
   "click",
   startListening
 );
 
+
 stopButton.addEventListener(
   "click",
   stopListening
 );
+
 
 clearButton.addEventListener(
   "click",
