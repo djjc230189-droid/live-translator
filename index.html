@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Live Translator EN → RU</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 24px;
+  background: #080808;
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+}
+
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+h1 {
+  margin: 10px 0 25px;
+  font-size: 32px;
+}
+
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 16px;
+  padding: 22px;
+  margin-bottom: 12px;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#start {
+  background: #22c55e;
+  color: white;
+}
+
+#stop {
+  background: #ef4444;
+  color: white;
+}
+
+#clear {
+  background: #262626;
+  color: white;
+}
+
+#status {
+  margin: 25px 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.listening {
+  color: #ff4d4d;
+}
+
+.label {
+  margin-top: 30px;
+  margin-bottom: 10px;
+  color: #777;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+#liveRussian {
+  min-height: 80px;
+  padding: 20px;
+  border-radius: 16px;
+  background: #171717;
+  font-size: 34px;
+  line-height: 1.45;
+}
+
+#history {
+  margin-top: 10px;
+}
+
+.phrase {
+  padding: 20px 0;
+  border-bottom: 1px solid #292929;
+}
+
+.russian {
+  font-size: 30px;
+  line-height: 1.45;
+}
+
+.english {
+  margin-top: 8px;
+  color: #777;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+#debug {
+  margin-top: 30px;
+  color: #666;
+  font-size: 14px;
+}
+
+@media (max-width: 600px) {
+
+  body {
+    padding: 15px;
+  }
+
+  h1 {
+    font-size: 25px;
+  }
+
+  #liveRussian {
+    font-size: 28px;
+  }
+
+  .russian {
+    font-size: 27px;
+  }
+
+}
+</style>
+</head>
+
+
+<body>
+
+<div class="container">
+
+<h1>🎧 Live EN → RU</h1>
+
+
+<button id="start">
+🎙 НАЧАТЬ СЛУШАТЬ
+</button>
+
+<button id="stop">
+■ ОСТАНОВИТЬ
+</button>
+
+<button id="clear">
+✕ ОЧИСТИТЬ
+</button>
+
+
+<div id="status">
+Готов
+</div>
+
+
+<div class="label">
+ПЕРЕВОД СЕЙЧАС
+</div>
+
+<div id="liveRussian">
+Нажмите «Начать слушать»
+</div>
+
+
+<div class="label">
+РАЗГОВОР
+</div>
+
+<div id="history"></div>
+
+
+<div id="debug"></div>
+
+</div>
+
+
+<script>
+
+let recognition = null;
+let running = false;
+
+let lastInterimText = "";
+let translationTimer = null;
+let translationRequest = 0;
+
+const startButton =
+  document.getElementById("start");
+
+const stopButton =
+  document.getElementById("stop");
+
+const clearButton =
+  document.getElementById("clear");
+
+const statusBox =
+  document.getElementById("status");
+
+const liveRussian =
+  document.getElementById("liveRussian");
+
+const history =
+  document.getElementById("history");
+
+const debug =
+  document.getElementById("debug");
+
+
+
+/* =========================
+   ПЕРЕВОД
+========================= */
+
+async function translateText(text) {
+
+  if (!text || text.trim().length < 2) {
+    return "";
+  }
+
+  try {
+
+    const url =
+      "https://api.mymemory.translated.net/get?q=" +
+      encodeURIComponent(text) +
+      "&langpair=en|ru";
+
+    const response =
+      await fetch(url);
+
+    if (!response.ok) {
+      throw new Error("Translation HTTP " + response.status);
+    }
+
+    const data =
+      await response.json();
+
+    if (
+      data &&
+      data.responseData &&
+      data.responseData.translatedText
+    ) {
+
+      return decodeHTML(
+        data.responseData.translatedText
+      );
+
+    }
+
+    return "";
+
+  } catch (error) {
+
+    debug.innerText =
+      "Ошибка перевода: " + error.message;
+
+    return "";
+
+  }
+
+}
+
+
+
+/* =========================
+   HTML ENTITIES
+========================= */
+
+function decodeHTML(text) {
+
+  const textarea =
+    document.createElement("textarea");
+
+  textarea.innerHTML = text;
+
+  return textarea.value;
+
+}
+
+
+
+/* =========================
+   LIVE ПЕРЕВОД
+========================= */
+
+function scheduleLiveTranslation(text) {
+
+  if (!text) return;
+
+  lastInterimText = text;
+
+  clearTimeout(translationTimer);
+
+  translationTimer =
+    setTimeout(async function() {
+
+      const requestId =
+        ++translationRequest;
+
+      const sourceText =
+        lastInterimText;
+
+      const translated =
+        await translateText(sourceText);
+
+      /*
+      Не показываем старый перевод,
+      если уже пришел более новый текст.
+      */
+
+      if (
+        requestId === translationRequest &&
+        translated
+      ) {
+
+        liveRussian.innerText =
+          translated;
+
+      }
+
+    }, 350);
+
+}
+
+
+
+/* =========================
+   ДОБАВЛЕНИЕ ФИНАЛЬНОЙ ФРАЗЫ
+========================= */
+
+async function addFinalPhrase(englishText) {
+
+  if (!englishText) return;
+
+  liveRussian.innerText =
+    "Перевожу...";
+
+  /*
+  Отменяем отображение старого
+  промежуточного перевода.
+  */
+
+  translationRequest++;
+
+  const russianText =
+    await translateText(englishText);
+
+
+  const phrase =
+    document.createElement("div");
+
+  phrase.className =
+    "phrase";
+
+
+  const russian =
+    document.createElement("div");
+
+  russian.className =
+    "russian";
+
+  russian.innerText =
+    russianText || "Не удалось перевести";
+
+
+  const english =
+    document.createElement("div");
+
+  english.className =
+    "english";
+
+  english.innerText =
+    englishText;
+
+
+  phrase.appendChild(russian);
+  phrase.appendChild(english);
+
+  history.appendChild(phrase);
+
+
+  liveRussian.innerText =
+    russianText || "";
+
+
+  window.scrollTo({
+    top: document.body.scrollHeight,
+    behavior: "smooth"
+  });
+
+}
+
+
+
+/* =========================
+   SPEECH RECOGNITION
+========================= */
+
+function createRecognition() {
+
+  const SpeechRecognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+
+  if (!SpeechRecognition) {
+
+    statusBox.innerText =
+      "❌ Браузер не поддерживает распознавание речи";
+
+    debug.innerText =
+      "Попробуйте открыть страницу в Google Chrome.";
+
+    return null;
+
+  }
+
+
+  const rec =
+    new SpeechRecognition();
+
+
+  rec.lang =
+    "en-US";
+
+  /*
+  false специально.
+
+  После каждой законченной части
+  мы автоматически запускаем
+  распознавание снова.
+
+  Это часто стабильнее.
+  */
+
+  rec.continuous =
+    false;
+
+  rec.interimResults =
+    true;
+
+  rec.maxAlternatives =
+    1;
+
+
+
+  rec.onstart =
+    function() {
+
+      statusBox.innerHTML =
+        '<span class="listening">🔴 СЛУШАЮ...</span>';
+
+      debug.innerText =
+        "Микрофон активен";
+
+    };
+
+
+
+  rec.onaudiostart =
+    function() {
+
+      debug.innerText =
+        "🎧 Получаю звук";
+
+    };
+
+
+
+  rec.onsoundstart =
+    function() {
+
+      debug.innerText =
+        "🔊 Слышу звук";
+
+    };
+
+
+
+  rec.onspeechstart =
+    function() {
+
+      debug.innerText =
+        "🗣 Слышу английскую речь";
+
+    };
+
+
+
+  rec.onresult =
+    function(event) {
+
+      let interimText = "";
+
+      for (
+        let i = event.resultIndex;
+        i < event.results.length;
+        i++
+      ) {
+
+        const text =
+          event.results[i][0]
+            .transcript
+            .trim();
+
+
+        if (!text) continue;
+
+
+        if (
+          event.results[i].isFinal
+        ) {
+
+          debug.innerText =
+            "✅ Распознано: " + text;
+
+          addFinalPhrase(text);
+
+        } else {
+
+          interimText +=
+            text + " ";
+
+        }
+
+      }
+
+
+      interimText =
+        interimText.trim();
+
+
+      if (interimText) {
+
+        debug.innerText =
+          "📝 " + interimText;
+
+        scheduleLiveTranslation(
+          interimText
+        );
+
+      }
+
+    };
+
+
+
+  rec.onerror =
+    function(event) {
+
+      console.log(
+        "Speech error:",
+        event.error
+      );
+
+
+      if (
+        event.error ===
+        "not-allowed"
+      ) {
+
+        running = false;
+
+        statusBox.innerText =
+          "❌ Разрешите доступ к микрофону";
+
+        debug.innerText =
+          "Доступ к микрофону запрещен";
+
+        return;
+
+      }
+
+
+      if (
+        event.error ===
+        "no-speech"
+      ) {
+
+        debug.innerText =
+          "Жду речь...";
+
+        return;
+
+      }
+
+
+      if (
+        event.error ===
+        "audio-capture"
+      ) {
+
+        running = false;
+
+        statusBox.innerText =
+          "❌ Микрофон недоступен";
+
+        return;
+
+      }
+
+
+      debug.innerText =
+        "Speech error: " +
+        event.error;
+
+    };
+
+
+
+  rec.onend =
+    function() {
+
+      if (!running) {
+
+        statusBox.innerText =
+          "■ Остановлено";
+
+        return;
+
+      }
+
+
+      statusBox.innerHTML =
+        '<span class="listening">🔴 СЛУШАЮ...</span>';
+
+
+      /*
+      Автоматически запускаем
+      микрофон снова.
+      */
+
+      setTimeout(
+        function() {
+
+          if (!running) return;
+
+          try {
+
+            rec.start();
+
+          } catch (error) {
+
+            console.log(error);
+
+          }
+
+        },
+        250
+      );
+
+    };
+
+
+  return rec;
+
+}
+
+
+
+/* =========================
+   START
+========================= */
+
+function startListening() {
+
+  if (running) {
+    return;
+  }
+
+
+  recognition =
+    createRecognition();
+
+
+  if (!recognition) {
+    return;
+  }
+
+
+  running =
+    true;
+
+
+  liveRussian.innerText =
+    "Слушаю английскую речь...";
+
+
+  try {
+
+    recognition.start();
+
+  } catch (error) {
+
+    running =
+      false;
+
+    debug.innerText =
+      error.message;
+
+  }
+
+}
+
+
+
+/* =========================
+   STOP
+========================= */
+
+function stopListening() {
+
+  running =
+    false;
+
+  clearTimeout(
+    translationTimer
+  );
+
+
+  if (recognition) {
+
+    try {
+
+      recognition.stop();
+
+    } catch (error) {}
+
+  }
+
+
+  statusBox.innerText =
+    "■ Остановлено";
+
+}
+
+
+
+/* =========================
+   CLEAR
+========================= */
+
+function clearEverything() {
+
+  history.innerHTML =
+    "";
+
+  liveRussian.innerText =
+    running
+      ? "Слушаю..."
+      : "Нажмите «Начать слушать»";
+
+  debug.innerText =
+    "";
+
+}
+
+
+
+/* =========================
+   BUTTONS
+========================= */
+
+startButton.addEventListener(
+  "click",
+  startListening
+);
+
+stopButton.addEventListener(
+  "click",
+  stopListening
+);
+
+clearButton.addEventListener(
+  "click",
+  clearEverything
+);
+
+</script>
+
+</body>
+</html>
